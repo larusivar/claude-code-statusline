@@ -1,16 +1,20 @@
 #!/bin/bash
-# Claude Code Statusline v2.0
-# Output: Model | ██████░░░░░░░░│ 31% +500 -100 [$4]
+# Claude Code Statusline v2.1
+# Output: Model | ███▓▓░░░░░░░░│ 31% +500 -100 [2h|↓1.2m↑0.3m|$4]
 #
-# Minimal, fast statusline using single jq call with @sh for safe variable extraction.
-# Dropped: session cache tracking, MCP counting (complexity for minimal value)
+# Bar segments show context composition:
+#   Dark teal (█):   Cached baseline at session start
+#   Medium teal (▓): Cache growth during session
+#   Light cyan (░):  Tokens added this turn
 
 # Single jq call extracts all data as eval-able shell variables
-# @sh produces properly quoted shell strings, safe from injection
 JQ_OUT=$(jq -r '
   @sh "M=\(.model.display_name // "Unknown")",
   @sh "Z=\(.context_window.context_window_size // 200000)",
-  @sh "U=\((.context_window.current_usage // {}) | ((.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)))",
+  @sh "I=\(.context_window.current_usage.input_tokens // 0)",
+  @sh "CC=\(.context_window.current_usage.cache_creation_input_tokens // 0)",
+  @sh "CR=\(.context_window.current_usage.cache_read_input_tokens // 0)",
+  @sh "S=\(.session_id // "")",
   @sh "K=\(.cost.total_cost_usd // 0)",
   @sh "D=\(.cost.total_duration_ms // 0)",
   @sh "A=\(.cost.total_lines_added // 0)",
@@ -19,42 +23,75 @@ JQ_OUT=$(jq -r '
   @sh "TO=\(.context_window.total_output_tokens // 0)"
 ' 2>/dev/null) || { printf '\e[38;5;73mClaude Code\e[0m\n'; exit 0; }
 
-# Check if jq produced output
 [[ -z $JQ_OUT ]] && { printf '\e[38;5;73mClaude Code\e[0m\n'; exit 0; }
 eval "$JQ_OUT"
 
-# Validate numerics and set defaults
+# Validate numerics
 [[ $Z =~ ^[0-9]+$ ]] || Z=200000
-for v in U D A X TI TO; do
+for v in I CC CR D A X TI TO; do
   [[ ${!v} =~ ^[0-9]+$ ]] || declare "$v=0"
 done
 
-# Calculate percentage and bar fill
-if ((Z > 0)); then
-  P=$((U * 100 / Z))
-  F=$((U * 14 / Z))
-  ((F > 14)) && F=14
-else
-  P=0 F=0
+# Session baseline tracking (lightweight: /tmp, single read)
+BASE=0
+if [[ -n $S && $CR -gt 0 ]]; then
+  CF="/tmp/claude-sl-${S//[^a-zA-Z0-9_]/_}"
+  if [[ -f $CF ]]; then
+    BASE=$(<"$CF")
+    [[ $BASE =~ ^[0-9]+$ ]] || BASE=0
+    ((BASE > CR)) && BASE=$CR
+  else
+    echo "$CR" > "$CF"
+    BASE=$CR
+    # Cleanup old files (1-in-20 chance, 1-day expiry)
+    ((RANDOM % 20 == 0)) && find /tmp -maxdepth 1 -name 'claude-sl-*' -mtime +1 -delete 2>/dev/null &
+  fi
 fi
 
-# Build bar: filled blocks + spaces + separator
-# Using parameter expansion instead of subshell for speed
-BLOCKS="██████████████"  # 14 blocks
-SPACES="              "  # 14 spaces
-BAR=$'\e[38;5;30m'"${BLOCKS:0:F}${SPACES:0:14-F}"$'\e[38;5;167m│\e[0m'
+# Calculate segments
+GROWTH=$((CR - BASE))
+NEW=$((I + CC))
+TOTAL=$((CR + NEW))
+
+# Calculate percentage
+if ((Z > 0)); then
+  P=$((TOTAL * 100 / Z))
+else
+  P=0
+fi
+
+# Calculate bar segment widths (14 slots)
+if ((Z > 0)); then
+  W_BASE=$((BASE * 14 / Z))
+  W_GROWTH=$((GROWTH * 14 / Z))
+  W_NEW=$((NEW * 14 / Z))
+  # Ensure minimum 1 char for non-zero values
+  ((BASE > 0 && W_BASE == 0)) && W_BASE=1
+  ((GROWTH > 0 && W_GROWTH == 0)) && W_GROWTH=1
+  ((NEW > 0 && W_NEW == 0)) && W_NEW=1
+else
+  W_BASE=0 W_GROWTH=0 W_NEW=0
+fi
+
+# Build three-segment bar
+SPACES="              "
+pos=0
+BAR=""
+for ((i=0; i<W_BASE && pos<14; i++, pos++)); do BAR+=$'\e[38;5;30m█'; done
+for ((i=0; i<W_GROWTH && pos<14; i++, pos++)); do BAR+=$'\e[38;5;73m█'; done
+for ((i=0; i<W_NEW && pos<14; i++, pos++)); do BAR+=$'\e[38;5;116m█'; done
+BAR+="${SPACES:0:14-pos}"$'\e[38;5;167m│\e[0m'
 
 # Build output
 OUT=$'\e[38;5;73m'"$M"$'\e[0m | '"$BAR $P%"
 
-# Lines changed (if any)
+# Lines changed
 ((A > 0 || X > 0)) && {
-  # Format with k suffix for thousands
   fmt() { ((${1:-0} >= 1000)) && echo "$((${1}/1000)).$((${1}%1000/100))k" || echo "${1:-0}"; }
   OUT+=$' \e[38;5;33m+'"$(fmt $A)"$'\e[0m \e[38;5;208m-'"$(fmt $X)"$'\e[0m'
 }
 
-# Session stats (if cost > 0 or duration > 0)
+# Session stats
 if [[ $K != "0" && $K != "0.0"* ]] || ((D > 0)); then
   H=$((D / 3600000))
   IN_M="$((TI / 1000000)).$((TI % 1000000 / 100000))"
