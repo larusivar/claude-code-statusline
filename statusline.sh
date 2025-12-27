@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code Statusline v2.1
+# Claude Code Statusline v2.1.1
 # Output: Model | ███▓▓░░░░░░░░│ 31% +500 -100 [2h|↓1.2m↑0.3m|$4]
 #
 # Bar segments show context composition:
@@ -28,6 +28,7 @@ eval "$JQ_OUT"
 
 # Validate numerics
 [[ $Z =~ ^[0-9]+$ ]] || Z=200000
+[[ $K =~ ^[0-9.]+$ ]] || K=0
 for v in I CC CR D A X TI TO; do
   [[ ${!v} =~ ^[0-9]+$ ]] || declare "$v=0"
 done
@@ -35,7 +36,8 @@ done
 # Session baseline tracking (lightweight: /tmp, single read)
 BASE=0
 if [[ -n $S && $CR -gt 0 ]]; then
-  CF="/tmp/claude-sl-${S//[^a-zA-Z0-9_]/_}"
+  SAFE_S="${S//[^a-zA-Z0-9_-]/_}"
+  CF="/tmp/claude-sl-${SAFE_S:0:64}"
   if [[ -f $CF ]]; then
     BASE=$(<"$CF")
     [[ $BASE =~ ^[0-9]+$ ]] || BASE=0
@@ -85,10 +87,11 @@ BAR+="${SPACES:0:14-pos}"$'\e[38;5;167m│\e[0m'
 # Build output
 OUT=$'\e[38;5;73m'"$M"$'\e[0m | '"$BAR $P%"
 
-# Lines changed
+# Lines changed (inline formatting to avoid subshells)
 ((A > 0 || X > 0)) && {
-  fmt() { ((${1:-0} >= 1000)) && echo "$((${1}/1000)).$((${1}%1000/100))k" || echo "${1:-0}"; }
-  OUT+=$' \e[38;5;33m+'"$(fmt $A)"$'\e[0m \e[38;5;208m-'"$(fmt $X)"$'\e[0m'
+  ((A >= 1000)) && AF="$((A/1000)).$((A%1000/100))k" || AF=$A
+  ((X >= 1000)) && XF="$((X/1000)).$((X%1000/100))k" || XF=$X
+  OUT+=$' \e[38;5;33m+'"$AF"$'\e[0m \e[38;5;208m-'"$XF"$'\e[0m'
 }
 
 # Session stats

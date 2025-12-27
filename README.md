@@ -54,7 +54,9 @@ Colors are defined inline using 256-color codes. Edit the script to change:
 | Element | Color Code | Description |
 |---------|------------|-------------|
 | Model name | 73 | Teal |
-| Bar fill | 30 | Dark teal |
+| Bar: baseline | 30 | Dark teal |
+| Bar: growth | 73 | Medium teal |
+| Bar: new | 116 | Light cyan |
 | Bar separator | 167 | Red |
 | Lines added | 33 | Blue |
 | Lines removed | 208 | Orange |
@@ -66,12 +68,12 @@ See [256 colors cheat sheet](https://www.ditig.com/256-colors-cheat-sheet) for o
 
 Claude Code passes JSON to the statusline script via stdin. The script uses a single `jq` call to extract all values, then pure bash to render the output.
 
-### Architecture (v2.1)
+### Architecture
 
 - **Single jq subprocess** — all JSON parsing in one call using `@sh` for safe variable extraction
 - **Lightweight session tracking** — stores baseline in `/tmp/`, single file read per render
-- **~106 lines** — minimal, readable code
-- **Auto-cleanup** — `/tmp/` files expire on reboot, probabilistic pruning for long-running systems
+- **~110 lines** — minimal, readable code
+- **Auto-cleanup** — `/tmp/` files expire on reboot, 1-in-20 chance of pruning old files
 
 ### Input JSON Structure
 
@@ -97,6 +99,13 @@ Claude Code passes JSON to the statusline script via stdin. The script uses a si
 }
 ```
 
+## Limitations
+
+- Requires `jq` (not bundled)
+- Session tracking only works when Claude Code provides `session_id` in the JSON
+- Colors require 256-color terminal support
+- Session ID cached in `/tmp/`, lost on reboot (bar resets to single-segment)
+
 ## Troubleshooting
 
 ### Statusline not showing
@@ -111,12 +120,17 @@ Your terminal needs 256-color support. Most modern terminals support this, but y
 
 ## Changelog
 
+### v2.1.1
+
+- Fixed: cost validation (could show "null" for malformed input)
+- Fixed: session ID handling (truncate to 64 chars, allow dashes)
+- Improved: inlined number formatting (avoids subshells)
+- Added: Limitations section in README
+
 ### v2.1.0
 
-- **Restored:** Multi-segment context bar (baseline/growth/new)
-- Lightweight session tracking via `/tmp/` (auto-cleanup on reboot)
-- Single file read per render (~0.1ms overhead)
-- ~106 lines total
+- Restored multi-segment context bar (baseline/growth/new)
+- Lightweight session tracking via `/tmp/`
 
 ### v2.0.0
 
