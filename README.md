@@ -1,21 +1,16 @@
 # Claude Code Statusline
 
-A custom statusline for [Claude Code](https://github.com/anthropics/claude-code) that shows context usage, session stats, and more.
+A minimal, fast statusline for [Claude Code](https://github.com/anthropics/claude-code).
 
 ```
-Claude Sonnet 4 | ███░░░░░░░░░░░│ 31% mcp:4 +1.5k -287 [2h|↓1.2m↑0.3m|$4]
+Claude Sonnet 4 | ████░░░░░░░░░░│ 31% +1.5k -287 [2h|↓1.2m↑0.3m|$4]
 ```
 
 ## Features
 
 - **Model name** — current model in teal
-- **Context usage bar** — visual representation of your context window:
-  - Dark teal: cached tokens from session start
-  - Medium teal: session growth (new cache since start)
-  - Light cyan: tokens added this turn
-  - Red separator marks the end
-- **Percentage** — how much of the context window is used
-- **MCP servers** — count of active MCP servers (if any)
+- **Context usage bar** — visual percentage of context window used
+- **Percentage** — exact context usage
 - **Lines changed** — `+added` `-removed` during session
 - **Session stats** — `[hours|↓input↑output|$cost]`
 
@@ -47,44 +42,35 @@ Claude Sonnet 4 | ███░░░░░░░░░░░│ 31% mcp:4 +1.5k 
 
 ## Customization
 
-### Colors
+Colors are defined inline using 256-color codes. Edit the script to change:
 
-Edit the color variables at the top of `statusline.sh`:
+| Element | Color Code | Description |
+|---------|------------|-------------|
+| Model name | 73 | Teal |
+| Bar fill | 30 | Dark teal |
+| Bar separator | 167 | Red |
+| Lines added | 33 | Blue |
+| Lines removed | 208 | Orange |
+| Session stats | 102, 179 | Gray, gold |
 
-```bash
-C_MODEL=73    # Model name: teal
-C_DIM=102     # Dim text: gray
-C_CACHED=30   # Cached tokens: dark teal
-C_GROWTH=73   # Session growth: medium teal
-C_NEW=116     # New tokens: light cyan
-C_SEP=167     # Bar separator: red
-C_MCP=109     # MCP count: muted cyan
-C_ADD=33      # Lines added: blue
-C_DEL=208     # Lines removed: orange
-C_UP=179      # Upload: gold
-```
-
-Colors use the 256-color palette. See [256 colors cheat sheet](https://www.ditig.com/256-colors-cheat-sheet) for options.
-
-### Bar Width
-
-Change `BAR_WIDTH` to adjust the context bar size:
-
-```bash
-BAR_WIDTH=15  # Default (14 blocks + 1 separator)
-```
+See [256 colors cheat sheet](https://www.ditig.com/256-colors-cheat-sheet) for options.
 
 ## How It Works
 
-Claude Code passes JSON to the statusline script via stdin. The script parses it with `jq` and renders the output.
+Claude Code passes JSON to the statusline script via stdin. The script uses a single `jq` call to extract all values, then pure bash to render the output.
+
+### Architecture (v2.0)
+
+- **Single jq subprocess** — all JSON parsing in one call using `@sh` for safe variable extraction
+- **~70 lines** — minimal, readable code
+- **No filesystem I/O** — no session cache files
+- **No external file reads** — removed MCP counting (was causing multiple jq calls)
 
 ### Input JSON Structure
 
 ```json
 {
   "model": { "display_name": "Claude Sonnet 4" },
-  "workspace": { "current_dir": "/path/to/project" },
-  "session_id": "abc123",
   "context_window": {
     "context_window_size": 200000,
     "current_usage": {
@@ -104,15 +90,6 @@ Claude Code passes JSON to the statusline script via stdin. The script parses it
 }
 ```
 
-### Session Tracking
-
-The script caches the initial cache size at session start (`~/.claude/statusline-cache/`). This lets it show:
-- **Cached base** — tokens that were already cached when you started
-- **Session growth** — new cache created during your session
-- **New tokens** — tokens added in the current turn
-
-Cache files are automatically cleaned up after 7 days.
-
 ## Troubleshooting
 
 ### Statusline not showing
@@ -125,9 +102,21 @@ Cache files are automatically cleaned up after 7 days.
 
 Your terminal needs 256-color support. Most modern terminals support this, but you may need to set `TERM=xterm-256color`.
 
-### MCP count not showing
+## Changelog
 
-The script looks for `.mcp.json` in your workspace directory. If you're using global MCP servers only, the count won't appear.
+### v2.0.0
+
+- **Breaking:** Removed session cache tracking (multi-segment bar)
+- **Breaking:** Removed MCP server counting
+- Reduced to single jq call (was 1-4 calls)
+- Reduced to ~70 lines (was 190+ lines)
+- Faster execution, no filesystem I/O
+
+### v1.1.0
+
+- Fixed MCP counting logic
+- Fixed edge cases (empty values, float costs)
+- Added robustness checks
 
 ## License
 
