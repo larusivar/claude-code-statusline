@@ -1,149 +1,142 @@
 # Claude Code Statusline
 
-A minimal, fast statusline for [Claude Code](https://github.com/anthropics/claude-code).
+A custom statusline for [Claude Code](https://claude.ai/claude-code) that displays context usage with a visual progress bar, model name, and optional agent name integration.
 
 ```
-Claude Sonnet 4 | ███▓▓░░░░░░░░│ 31% +1.5k -287 [2h|↓1.2m↑0.3m|$4]
-                  ↑↑↑ ↑↑ ↑
-                  │││ ││ └── Light cyan: this turn's tokens
-                  │││ └──── Medium teal: cache growth during session
-                  └──────── Dark teal: baseline at session start
+Opus 4.5 | AgentName | ████████░░░░░░│ 42% [2h]
 ```
 
 ## Features
 
-- **Model name** — current model in teal
-- **Context usage bar** — three-segment visualization:
-  - **Dark teal:** cached tokens at session start
-  - **Medium teal:** cache growth during session
-  - **Light cyan:** tokens added this turn
-- **Percentage** — exact context usage
-- **Lines changed** — `+added` `-removed` during session
-- **Session stats** — `[hours|↓input↑output|$cost]`
+- **Visual context bar** - See at a glance how much context is used
+- **Color-coded segments** - Distinguish between cached and new tokens
+- **Agent name display** - Show registered Agent Mail agent names
+- **Session duration** - Track how long you've been working
+- **Lightweight** - Single `jq` call, minimal file I/O
+
+## Requirements
+
+- [Claude Code](https://claude.ai/claude-code) (Anthropic's CLI)
+- `jq` 1.6+ - JSON processor
+  - macOS: `brew install jq`
+  - Ubuntu/Debian: `apt install jq`
+  - Fedora: `dnf install jq`
+- Bash 3.2+ (macOS default works)
+- Terminal with 256-color support (most modern terminals)
 
 ## Installation
 
-### Requirements
+### 1. Copy the files
 
-- `jq` — install with `brew install jq` (macOS) or `apt install jq` (Linux)
+```bash
+mkdir -p ~/.claude/hooks
+curl -o ~/.claude/statusline.sh https://raw.githubusercontent.com/larusivar/claude-code-statusline/main/statusline.sh
+curl -o ~/.claude/hooks/capture-agent-name.sh https://raw.githubusercontent.com/larusivar/claude-code-statusline/main/hooks/capture-agent-name.sh
+chmod +x ~/.claude/statusline.sh ~/.claude/hooks/capture-agent-name.sh
+```
 
-### Setup
+### 2. Configure Claude Code
 
-1. Download the script:
-   ```bash
-   curl -o ~/.claude/statusline.sh https://raw.githubusercontent.com/larusivar/claude-code-statusline/main/statusline.sh
-   chmod +x ~/.claude/statusline.sh
-   ```
-
-2. Add to your Claude Code settings (`~/.claude/settings.json`):
-   ```json
-   {
-     "statusLine": {
-       "type": "command",
-       "command": "~/.claude/statusline.sh"
-     }
-   }
-   ```
-
-3. Restart Claude Code to see the statusline.
-
-## Customization
-
-Colors are defined inline using 256-color codes. Edit the script to change:
-
-| Element | Color Code | Description |
-|---------|------------|-------------|
-| Model name | 73 | Teal |
-| Bar: baseline | 30 | Dark teal |
-| Bar: growth | 73 | Medium teal |
-| Bar: new | 116 | Light cyan |
-| Bar separator | 167 | Red |
-| Lines added | 33 | Blue |
-| Lines removed | 208 | Orange |
-| Session stats | 102, 179 | Gray, gold |
-
-See [256 colors cheat sheet](https://www.ditig.com/256-colors-cheat-sheet) for options.
-
-## How It Works
-
-Claude Code passes JSON to the statusline script via stdin. The script uses a single `jq` call to extract all values, then pure bash to render the output.
-
-### Architecture
-
-- **Single jq subprocess** — all JSON parsing in one call using `@sh` for safe variable extraction
-- **Lightweight session tracking** — stores baseline in `/tmp/`, single file read per render
-- **~110 lines** — minimal, readable code
-- **Auto-cleanup** — `/tmp/` files expire on reboot, 1-in-20 chance of pruning old files
-
-### Input JSON Structure
+Add to `~/.claude/settings.json`:
 
 ```json
 {
-  "model": { "display_name": "Claude Sonnet 4" },
-  "context_window": {
-    "context_window_size": 200000,
-    "current_usage": {
-      "input_tokens": 5000,
-      "cache_creation_input_tokens": 2000,
-      "cache_read_input_tokens": 30000
-    },
-    "total_input_tokens": 500000,
-    "total_output_tokens": 150000
-  },
-  "cost": {
-    "total_cost_usd": 2.50,
-    "total_duration_ms": 3600000,
-    "total_lines_added": 500,
-    "total_lines_removed": 100
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
   }
 }
 ```
 
-## Limitations
+### 3. (Optional) Enable Agent Name Display
 
-- Requires `jq` (not bundled)
-- Session tracking only works when Claude Code provides `session_id` in the JSON
-- Colors require 256-color terminal support
-- Session ID cached in `/tmp/`, lost on reboot (bar resets to single-segment)
+If you use [Agent Mail](https://github.com/anthropics/agent-mail) for multi-agent coordination, add this hook to capture agent names:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__mcp-agent-mail__(register_agent|macro_start_session|create_agent_identity|macro_prepare_thread)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/capture-agent-name.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Color Legend
+
+The progress bar uses three colors to show context composition:
+
+| Color | Meaning |
+|-------|---------|
+| **Dark teal** | Cached tokens from session start (baseline) |
+| **Medium teal** | Cache growth during the session |
+| **Light cyan** | New tokens added this turn |
+
+This helps you understand:
+- How much context is "fixed" (system prompt, file contents)
+- How much the conversation has grown
+- How much the current turn is adding
+
+## Output Format
+
+```
+Model | AgentName | ████████░░░░░░│ 42% [2h]
+  │        │              │         │    │
+  │        │              │         │    └── Session duration
+  │        │              │         └── Context percentage
+  │        │              └── Visual bar (14 chars)
+  │        └── Agent name (if registered with Agent Mail)
+  └── Model display name (Opus, Sonnet, etc.)
+```
+
+## Session Files
+
+The statusline stores session data in `/tmp/claude-sl-{session_id}`.
+
+Format: `BASELINE<tab>TOTAL<tab>AGENT_NAME`
+
+Files are cleaned up probabilistically (1 in 20 chance per new session) after 1 day of inactivity.
+
+**Known limitation:** Agent name may briefly disappear if hook and statusline write simultaneously. This is a best-effort tradeoff for ultra-lightweight operation (no file locking).
 
 ## Troubleshooting
 
-### Statusline not showing
-
-1. Check `jq` is installed: `which jq`
-2. Verify the script is executable: `chmod +x ~/.claude/statusline.sh`
-3. Test manually: `echo '{"model":{"display_name":"Test"}}' | ~/.claude/statusline.sh`
+### "jq required" message
+Install jq: `brew install jq` (macOS) or `apt install jq` (Ubuntu)
 
 ### Colors look wrong
+Ensure your terminal supports 256 colors. Check with:
+```bash
+echo $TERM  # Should be xterm-256color or similar
+```
 
-Your terminal needs 256-color support. Most modern terminals support this, but you may need to set `TERM=xterm-256color`.
+### Agent name not appearing
+1. Verify the hook is configured in `settings.json`
+2. Check that you're using Agent Mail registration tools
+3. The name appears after the next Claude Code prompt
 
-## Changelog
-
-### v2.1.1
-
-- Fixed: cost validation (could show "null" for malformed input)
-- Fixed: session ID handling (truncate to 64 chars, allow dashes)
-- Improved: inlined number formatting (avoids subshells)
-- Added: Limitations section in README
-
-### v2.1.0
-
-- Restored multi-segment context bar (baseline/growth/new)
-- Lightweight session tracking via `/tmp/`
-
-### v2.0.0
-
-- Removed session tracking and MCP counting for simplicity
-- Single jq call architecture
-- ~70 lines
-
-### v1.1.0
-
-- Fixed MCP counting logic
-- Fixed edge cases (empty values, float costs)
-- Added robustness checks
+### Bar not updating
+Session files may be stale. Clear them:
+```bash
+rm -f /tmp/claude-sl-*
+```
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE)
+
+## Contributing
+
+Issues and pull requests welcome!

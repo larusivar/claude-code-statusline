@@ -1,0 +1,20 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh",
+    "padding": 0
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__mcp-agent-mail__(register_agent|macro_start_session|create_agent_identity|macro_prepare_thread)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/capture-agent-name.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
